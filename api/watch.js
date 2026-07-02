@@ -6,7 +6,7 @@ export const config = {
   maxDuration: 60,
 };
 
-const SYSTEM_PROMPT = `You are a competitor research agent. Your goal is to find recent product updates, pricing changes, and notable news about a company from the last 30 days.
+const SYSTEM_PROMPT = `Today's date is ${new Date().toISOString().split('T')[0]}. Your goal is to find recent product updates, pricing changes, and notable news about a company from the last 30 days. Always include the current year in your search queries.
 
 You have access to two tools:
 1. check_watchlist — always call this FIRST to see if this company has been researched before and what was previously found. Use prior findings to avoid redundant searches and focus only on what may have changed.
@@ -114,7 +114,8 @@ async function searchWeb(query) {
       api_key: process.env.TAVILY_API_KEY,
       query,
       search_depth: 'advanced',
-      max_results: 5
+      max_results: 5,
+      days: 30
     })
   });
 
