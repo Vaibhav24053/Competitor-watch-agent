@@ -240,18 +240,62 @@ export default async function handler(req, res) {
   timeout: 50000,
   maxRetries: 0
 });
-  const messages = [
-    { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'user', content: `Today is ${new Date().toISOString().split('T')[0]}. Research this company: ${companyName}. Only look for news and updates from the last 30 days (since ${new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}). Your search queries must include 2026 in them.` }
-  ];
-  const runState = { watchlist: null };
-  let toolCallCount = 0;
-  let forceSummary = false;
+ const currentYear = new Date().getFullYear();
+const currentMonth = new Date().toLocaleString('default', { month: 'long' });
 
-  sendEvent(res, 'log', { message: `Starting competitor watch for "${companyName}"...` });
+// Pre-generate search queries ourselves so the model can't anchor to 2023
+const searchQueries = [
+  `${companyName} product updates ${currentMonth} ${currentYear}`,
+  `${companyName} pricing changes ${currentYear}`,
+  `${companyName} news ${currentMonth} ${currentYear}`
+];
 
+const messages = [
+  { role: 'system', content: SYSTEM_PROMPT },
+  { role: 'user', content: `Today is ${new Date().toISOString().split('T')[0]}. Summarize findings about ${companyName} based on the search results I will provide. Do not call search_web — I have already run the searches. Just call check_watchlist first, then save_to_watchlist last, and write your summary based on the provided results.` }
+];
+  const currentYear = new Date().getFullYear();
+const currentMonth = new Date().toLocaleString('default', { month: 'long' });
+
+const searchQueries = [
+  `${companyName} product updates ${currentMonth} ${currentYear}`,
+  `${companyName} pricing changes ${currentYear}`,
+  `${companyName} news ${currentMonth} ${currentYear}`
+];
+
+const messages = [
+  { role: 'system', content: SYSTEM_PROMPT },
+  { role: 'user', content: `Today is ${new Date().toISOString().split('T')[0]}. Summarize findings about ${companyName} based on the search results I will provide. Do not call search_web. Just call check_watchlist first, then save_to_watchlist last, and write your summary based on the provided results.` }
+];
+const runState = { watchlist: null };
+let toolCallCount = 0;
+let forceSummary = false;
+
+sendEvent(res, 'log', { message: `Starting competitor watch for "${companyName}"...` });
+
+// Run searches upfront with correct date-anchored queries
+const allResults = [];
+for (const query of searchQueries) {
+  sendEvent(res, 'log', { message: `Calling search_web("${query}")` });
   try {
-    while (true) {
+    const results = await searchWeb(query);
+    allResults.push({ query, results });
+    sendEvent(res, 'log', { message: `Got ${results.length} results, evaluating relevance...` });
+  } catch (err) {
+    sendEvent(res, 'log', { message: `Warning: search failed for "${query}", continuing...` });
+  }
+}
+
+// Inject all search results into conversation so model only summarizes
+messages.push({
+  role: 'user',
+  content: `Here are the search results from ${currentMonth} ${currentYear}:\n\n${allResults.map(r =>
+    `Query: "${r.query}"\nResults:\n${r.results.map(x => `- ${x.title}: ${x.snippet} (${x.url})`).join('\n')}`
+  ).join('\n\n')}\n\nNow write your structured summary based only on these results.`
+});
+
+try {
+  while (true) {
       sendEvent(res, 'log', { message: 'Agent is deciding the next step...' });
 
       const completion = await openai.chat.completions.create({
