@@ -6,7 +6,7 @@ export const config = {
   maxDuration: 60,
 };
 
-const SYSTEM_PROMPT = `Today's date is ${new Date().toISOString().split('T')[0]}. Your goal is to find recent product updates, pricing changes, and notable news about a company from the last 30 days. Always include the current year in your search queries.
+const SYSTEM_PROMPT = `You are a competitor research agent. IMPORTANT: Today's date is ${new Date().toISOString().split('T')[0]} (year 2026). You must only search for information from 2026. Never use 2023, 2024, or 2025 in your search queries. Always append "2026" to every search query you make. Your goal is to find recent product updates, pricing changes, and notable news about a company from the last 30 days.
 
 You have access to two tools:
 1. check_watchlist — always call this FIRST to see if this company has been researched before and what was previously found. Use prior findings to avoid redundant searches and focus only on what may have changed.
@@ -242,7 +242,7 @@ export default async function handler(req, res) {
 });
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'user', content: `Research this company: ${companyName}` }
+    { role: 'user', content: `Today is ${new Date().toISOString().split('T')[0]}. Research this company: ${companyName}. Only look for news and updates from the last 30 days (since ${new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}). Your search queries must include 2026 in them.` }
   ];
   const runState = { watchlist: null };
   let toolCallCount = 0;
