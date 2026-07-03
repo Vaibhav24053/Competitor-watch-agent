@@ -180,6 +180,7 @@ export default async function handler(req, res) {
     ? `\n\nPrevious findings from ${watchlistResult.last_checked}:\n${JSON.stringify(watchlistResult.previous_findings, null, 2)}`
     : '';
 
+  sendEvent(res, 'log', { message: `DEBUG: First result title: ${allResults[0]?.results[0]?.title || 'no results'}` });
   sendEvent(res, 'log', { message: 'Agent is deciding the next step...' });
 
   try {
