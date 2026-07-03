@@ -6,64 +6,6 @@ export const config = {
   maxDuration: 60,
 };
 
-const SYSTEM_PROMPT = `You are a competitor research agent. IMPORTANT: Today's date is ${new Date().toISOString().split('T')[0]} (year 2026). You must only search for information from 2026. Never use 2023, 2024, or 2025 in your search queries. Always append "2026" to every search query you make. Your goal is to find recent product updates, pricing changes, and notable news about a company from the last 30 days.
-
-You have access to two tools:
-1. check_watchlist — always call this FIRST to see if this company has been researched before and what was previously found. Use prior findings to avoid redundant searches and focus only on what may have changed.
-2. search_web — call this to search the web for current information. Make targeted, specific queries. You may call this up to 3 times with different queries if needed.
-3. save_to_watchlist — call this LAST, after you have written your summary, to save the new findings for future reference.
-
-Once you have gathered enough information, stop calling tools and write a structured summary with exactly these three sections: Product Updates, Pricing Changes, Notable News. Each section should have 2-3 bullet points with source URLs where available.`;
-
-const tools = [
-  {
-    type: 'function',
-    function: {
-      name: 'check_watchlist',
-      description: 'Check if this company has been researched before and retrieve previous findings',
-      parameters: {
-        type: 'object',
-        properties: {
-          company_name: { type: 'string' }
-        },
-        required: ['company_name'],
-        additionalProperties: false
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'search_web',
-      description: 'Search the web for recent news and updates about a company',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string' }
-        },
-        required: ['query'],
-        additionalProperties: false
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'save_to_watchlist',
-      description: 'Save the current findings to the watchlist database for future reference',
-      parameters: {
-        type: 'object',
-        properties: {
-          company_name: { type: 'string' },
-          findings: { type: 'object' }
-        },
-        required: ['company_name', 'findings'],
-        additionalProperties: false
-      }
-    }
-  }
-];
-
 function sendEvent(res, event, payload) {
   res.write(`event: ${event}\n`);
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
@@ -77,7 +19,6 @@ function createSupabaseClient() {
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error('Supabase environment variables are not configured.');
   }
-
   return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false }
   });
@@ -151,66 +92,8 @@ async function saveToWatchlist(companyName, findings) {
   return { saved: true, company_name: data.company_name, last_checked: data.last_checked };
 }
 
-function describeToolCall(name, args) {
-  if (name === 'check_watchlist') {
-    return `Checking watchlist for previous findings on "${args.company_name}"...`;
-  }
-  if (name === 'search_web') {
-    return `Calling search_web("${args.query}")`;
-  }
-  if (name === 'save_to_watchlist') {
-    return 'Saving findings to watchlist...';
-  }
-  return `Calling ${name}...`;
-}
-
-function summarizeToolResult(name, result) {
-  if (name === 'check_watchlist') {
-    if (result.found) {
-      const days = Math.max(
-        0,
-        Math.round((Date.now() - new Date(result.last_checked).getTime()) / 86_400_000)
-      );
-      return `Found previous check from ${days} days ago. Focusing search on what changed since then.`;
-    }
-    return 'No previous watchlist entry found. Starting a fresh research pass.';
-  }
-  if (name === 'search_web') {
-    return `Got ${Array.isArray(result) ? result.length : 0} results, evaluating relevance...`;
-  }
-  if (name === 'save_to_watchlist') {
-    return result.saved ? 'Watchlist saved.' : 'Watchlist save was skipped.';
-  }
-  return 'Tool result received.';
-}
-
 function countSummaryBullets(summary) {
   return summary.split('\n').filter((line) => /^[-*]\s+/.test(line.trim())).length;
-}
-
-async function executeTool(name, args, res, runState) {
-  try {
-    if (name === 'check_watchlist') {
-      const result = await checkWatchlist(args.company_name);
-      runState.watchlist = result;
-      return result;
-    }
-    if (name === 'search_web') {
-      return await searchWeb(args.query);
-    }
-    if (name === 'save_to_watchlist') {
-      return await saveToWatchlist(args.company_name, args.findings);
-    }
-
-    return { error: `Unknown tool: ${name}` };
-  } catch (error) {
-    const warning =
-      name === 'search_web'
-        ? `Warning: web search failed (${error.message}). Continuing with available context.`
-        : `Warning: ${name} failed (${error.message}). Continuing without blocking the research.`;
-    sendEvent(res, 'log', { message: warning });
-    return { error: warning };
-  }
 }
 
 export default async function handler(req, res) {
@@ -235,142 +118,123 @@ export default async function handler(req, res) {
     return res.end();
   }
 
-  const openai = new OpenAI({ 
-  apiKey: process.env.OPENAI_API_KEY,
-  timeout: 50000,
-  maxRetries: 0
-});
- const currentYear = new Date().getFullYear();
-const currentMonth = new Date().toLocaleString('default', { month: 'long' });
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    timeout: 50000,
+    maxRetries: 0
+  });
 
-// Pre-generate search queries ourselves so the model can't anchor to 2023
-const searchQueries = [
-  `${companyName} product updates ${currentMonth} ${currentYear}`,
-  `${companyName} pricing changes ${currentYear}`,
-  `${companyName} news ${currentMonth} ${currentYear}`
-];
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.toLocaleString('default', { month: 'long' });
+  const todayStr = today.toISOString().split('T')[0];
 
-const messages = [
-  { role: 'system', content: SYSTEM_PROMPT },
-  { role: 'user', content: `Today is ${new Date().toISOString().split('T')[0]}. Summarize findings about ${companyName} based on the search results I will provide. Do not call search_web — I have already run the searches. Just call check_watchlist first, then save_to_watchlist last, and write your summary based on the provided results.` }
-];
-  const currentYear = new Date().getFullYear();
-const currentMonth = new Date().toLocaleString('default', { month: 'long' });
+  // We generate search queries ourselves so the model cannot anchor to 2023
+  const searchQueries = [
+    `${companyName} product updates ${currentMonth} ${currentYear}`,
+    `${companyName} pricing changes ${currentYear}`,
+    `${companyName} latest news ${currentMonth} ${currentYear}`
+  ];
 
-const searchQueries = [
-  `${companyName} product updates ${currentMonth} ${currentYear}`,
-  `${companyName} pricing changes ${currentYear}`,
-  `${companyName} news ${currentMonth} ${currentYear}`
-];
+  sendEvent(res, 'log', { message: `Starting competitor watch for "${companyName}"...` });
 
-const messages = [
-  { role: 'system', content: SYSTEM_PROMPT },
-  { role: 'user', content: `Today is ${new Date().toISOString().split('T')[0]}. Summarize findings about ${companyName} based on the search results I will provide. Do not call search_web. Just call check_watchlist first, then save_to_watchlist last, and write your summary based on the provided results.` }
-];
-const runState = { watchlist: null };
-let toolCallCount = 0;
-let forceSummary = false;
-
-sendEvent(res, 'log', { message: `Starting competitor watch for "${companyName}"...` });
-
-// Run searches upfront with correct date-anchored queries
-const allResults = [];
-for (const query of searchQueries) {
-  sendEvent(res, 'log', { message: `Calling search_web("${query}")` });
+  // Step 1: Check watchlist for previous findings
+  let watchlistResult = { found: false };
+  sendEvent(res, 'log', { message: `Checking watchlist for previous findings on "${companyName}"...` });
   try {
-    const results = await searchWeb(query);
-    allResults.push({ query, results });
-    sendEvent(res, 'log', { message: `Got ${results.length} results, evaluating relevance...` });
-  } catch (err) {
-    sendEvent(res, 'log', { message: `Warning: search failed for "${query}", continuing...` });
-  }
-}
-
-// Inject all search results into conversation so model only summarizes
-messages.push({
-  role: 'user',
-  content: `Here are the search results from ${currentMonth} ${currentYear}:\n\n${allResults.map(r =>
-    `Query: "${r.query}"\nResults:\n${r.results.map(x => `- ${x.title}: ${x.snippet} (${x.url})`).join('\n')}`
-  ).join('\n\n')}\n\nNow write your structured summary based only on these results.`
-});
-
-try {
-  while (true) {
-      sendEvent(res, 'log', { message: 'Agent is deciding the next step...' });
-
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages,
-        tools: forceSummary ? undefined : tools,
-        tool_choice: forceSummary ? undefined : 'auto',
-        temperature: 0.2
-      });
-
-      const choice = completion.choices[0];
-      const assistantMessage = choice.message;
-      messages.push(assistantMessage);
-
-      if (choice.finish_reason === 'tool_calls' && assistantMessage.tool_calls?.length) {
-        for (const toolCall of assistantMessage.tool_calls) {
-          const name = toolCall.function.name;
-          const args = JSON.parse(toolCall.function.arguments || '{}');
-
-          if (toolCallCount >= 5) {
-            messages.push({
-              role: 'tool',
-              tool_call_id: toolCall.id,
-              content: JSON.stringify({
-                error: 'Maximum tool call limit reached. This tool was not executed.'
-              })
-            });
-            continue;
-          }
-
-          toolCallCount += 1;
-
-          sendEvent(res, 'log', { message: describeToolCall(name, args) });
-          const result = await executeTool(name, args, res, runState);
-          sendEvent(res, 'log', { message: summarizeToolResult(name, result) });
-
-          messages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify(result)
-          });
-        }
-
-        if (toolCallCount >= 5) {
-          messages.push({
-            role: 'user',
-            content:
-              'You have reached the maximum number of tool calls. Please write your summary now based on what you have gathered.'
-          });
-          forceSummary = true;
-          sendEvent(res, 'log', {
-            message: 'Reached the maximum number of tool calls. Asking agent to summarize now...'
-          });
-        }
-
-        continue;
-      }
-
-      if (choice.finish_reason === 'stop') {
-        const summary = assistantMessage.content || '';
-        sendEvent(res, 'log', { message: 'Done. Summary ready.' });
-        sendEvent(res, 'final', {
-          summary,
-          meta: {
-            wasCheckedBefore: Boolean(runState.watchlist?.found),
-            lastChecked: runState.watchlist?.last_checked || null,
-            newFindingsCount: countSummaryBullets(summary)
-          }
-        });
-        return res.end();
-      }
-
-      sendEvent(res, 'error', { message: 'The agent stopped unexpectedly before producing a summary.' });
-      return res.end();
+    watchlistResult = await checkWatchlist(companyName);
+    if (watchlistResult.found) {
+      const days = Math.max(0, Math.round(
+        (Date.now() - new Date(watchlistResult.last_checked).getTime()) / 86_400_000
+      ));
+      sendEvent(res, 'log', { message: `Found previous check from ${days} days ago. Focusing on what changed since then.` });
+    } else {
+      sendEvent(res, 'log', { message: 'No previous watchlist entry found. Starting a fresh research pass.' });
     }
+  } catch (err) {
+    sendEvent(res, 'log', { message: `Warning: watchlist check failed (${err.message}). Continuing without prior context.` });
+  }
+
+  // Step 2: Run all searches ourselves with date-anchored queries
+  const allResults = [];
+  for (const query of searchQueries) {
+    sendEvent(res, 'log', { message: `Calling search_web("${query}")` });
+    try {
+      const results = await searchWeb(query);
+      allResults.push({ query, results });
+      sendEvent(res, 'log', { message: `Got ${results.length} results, evaluating relevance...` });
+    } catch (err) {
+      sendEvent(res, 'log', { message: `Warning: search failed for "${query}", continuing...` });
+    }
+  }
+
+  // Step 3: Ask OpenAI to summarize ONLY from the search results we provide
+  // No tools passed — model cannot call search_web, it can only write the summary
+  const searchContext = allResults.map(r =>
+    `Search query: "${r.query}"\nResults:\n${r.results.map(x =>
+      `- ${x.title}: ${x.snippet} (source: ${x.url})`
+    ).join('\n')}`
+  ).join('\n\n');
+
+  const priorContext = watchlistResult.found
+    ? `\n\nPrevious findings from ${watchlistResult.last_checked}:\n${JSON.stringify(watchlistResult.previous_findings, null, 2)}`
+    : '';
+
+  sendEvent(res, 'log', { message: 'Agent is deciding the next step...' });
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: `You are a competitor research analyst. Today is ${todayStr}. Your job is to summarize the provided search results into a structured report. You must ONLY use information from the search results provided — do not use your training data or make up facts. If a section has no relevant results, say "No recent updates found."`
+        },
+        {
+          role: 'user',
+          content: `Here are the latest search results for "${companyName}" from ${currentMonth} ${currentYear}:
+
+${searchContext}${priorContext}
+
+Based ONLY on the search results above, write a structured summary with exactly these three sections:
+
+## Product Updates
+- [bullet with source URL]
+
+## Pricing Changes  
+- [bullet with source URL]
+
+## Notable News
+- [bullet with source URL]
+
+Each section must have 2-3 bullets. Only include information found in the search results above.`
+        }
+      ],
+      temperature: 0.1
+    });
+
+    const summary = completion.choices[0]?.message?.content || '';
+    sendEvent(res, 'log', { message: 'Done. Summary ready.' });
+
+    // Step 4: Save findings to watchlist
+    sendEvent(res, 'log', { message: 'Saving findings to watchlist...' });
+    try {
+      await saveToWatchlist(companyName, { summary, queries: searchQueries, date: todayStr });
+      sendEvent(res, 'log', { message: 'Watchlist saved.' });
+    } catch (err) {
+      sendEvent(res, 'log', { message: `Warning: could not save to watchlist (${err.message}).` });
+    }
+
+    sendEvent(res, 'final', {
+      summary,
+      meta: {
+        wasCheckedBefore: watchlistResult.found,
+        lastChecked: watchlistResult.last_checked || null,
+        newFindingsCount: countSummaryBullets(summary)
+      }
+    });
+
+    return res.end();
   } catch (error) {
     sendEvent(res, 'error', { message: `OpenAI call failed: ${error.message}` });
     return res.end();
