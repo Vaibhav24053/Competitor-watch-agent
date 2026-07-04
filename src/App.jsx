@@ -53,29 +53,32 @@ function linkify(text) {
 const SECTION_META = {
   'Product Updates': {
     icon: '🚀',
-    gradient: 'from-violet-500/20 to-purple-500/5',
     border: 'border-violet-500/20',
     badge: 'bg-violet-500/10 text-violet-300 border-violet-500/20',
-    bullet: 'bg-violet-400'
+    bullet: 'bg-violet-400',
+    bg: 'rgba(124,58,237,0.08)'
   },
   'Pricing Changes': {
     icon: '💰',
-    gradient: 'from-indigo-500/20 to-blue-500/5',
     border: 'border-indigo-500/20',
     badge: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20',
-    bullet: 'bg-indigo-400'
+    bullet: 'bg-indigo-400',
+    bg: 'rgba(99,102,241,0.08)'
   },
   'Notable News': {
     icon: '📡',
-    gradient: 'from-purple-500/20 to-pink-500/5',
     border: 'border-purple-500/20',
     badge: 'bg-purple-500/10 text-purple-300 border-purple-500/20',
-    bullet: 'bg-purple-400'
+    bullet: 'bg-purple-400',
+    bg: 'rgba(168,85,247,0.08)'
   }
 };
 
+const ACCESS_PASSWORD = 'watchagent2026';
+
 export default function App() {
   const [companyName, setCompanyName] = useState('');
+  const [password, setPassword] = useState('');
   const [logs, setLogs] = useState([]);
   const [summary, setSummary] = useState('');
   const [meta, setMeta] = useState(null);
@@ -90,6 +93,11 @@ export default function App() {
     event.preventDefault();
     const trimmed = companyName.trim();
     if (!trimmed || isRunning) return;
+
+    if (password !== ACCESS_PASSWORD) {
+      setError('Incorrect access password.');
+      return;
+    }
 
     abortRef.current?.abort();
     abortRef.current = new AbortController();
@@ -161,10 +169,9 @@ export default function App() {
   const hasSummary = Boolean(summary);
 
   return (
-    <main className="min-h-screen bg-[#0c0a1a] px-4 py-10 text-slate-100 sm:px-6 lg:px-10"
-      style={{
-        backgroundImage: 'radial-gradient(ellipse 80% 50% at 50% -20%, rgba(120,80,220,0.15), transparent)'
-      }}
+    <main
+      className="min-h-screen bg-[#0c0a1a] px-4 py-10 text-slate-100 sm:px-6 lg:px-10"
+      style={{ backgroundImage: 'radial-gradient(ellipse 80% 50% at 50% -20%, rgba(120,80,220,0.15), transparent)' }}
     >
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-8">
 
@@ -188,35 +195,39 @@ export default function App() {
           </p>
         </header>
 
-        {/* Search form */}
-        <form className="flex flex-col gap-3 sm:flex-row" onSubmit={startWatch}>
-          <div className="relative flex-1">
+        {/* Form */}
+        <form className="flex flex-col gap-3" onSubmit={startWatch}>
+          <div className="flex flex-col gap-3 sm:flex-row">
             <input
-              className="h-12 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-2 focus:ring-violet-500/20"
-              id="companyName"
-              onChange={(event) => setCompanyName(event.target.value)}
+              className="h-12 flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-violet-500/50 focus:bg-white/[0.06] focus:ring-2 focus:ring-violet-500/20"
+              onChange={(e) => setCompanyName(e.target.value)}
               placeholder="Enter a company name, e.g. Notion, Linear, Figma..."
               value={companyName}
             />
+            <input
+              className="h-12 rounded-xl border border-white/10 bg-white/[0.04] px-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 sm:w-56"
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Access password..."
+              type="password"
+              value={password}
+            />
+            <button
+              className="h-12 rounded-xl px-6 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={isRunning || !companyName.trim()}
+              style={{
+                background: isRunning ? 'rgba(124,58,237,0.5)' : 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                boxShadow: isRunning ? 'none' : '0 0 20px rgba(124,58,237,0.4)'
+              }}
+              type="submit"
+            >
+              {isRunning ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse"></span>
+                  Watching...
+                </span>
+              ) : 'Start Watch →'}
+            </button>
           </div>
-          <button
-            className="h-12 rounded-xl px-6 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
-            disabled={isRunning || !companyName.trim()}
-            style={{
-              background: isRunning
-                ? 'rgba(124,58,237,0.5)'
-                : 'linear-gradient(135deg, #7c3aed, #6d28d9)',
-              boxShadow: isRunning ? 'none' : '0 0 20px rgba(124,58,237,0.4)'
-            }}
-            type="submit"
-          >
-            {isRunning ? (
-              <span className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse"></span>
-                Watching...
-              </span>
-            ) : 'Start Watch →'}
-          </button>
         </form>
 
         {/* Live agent log */}
@@ -240,10 +251,7 @@ export default function App() {
               </span>
             </div>
           </div>
-          <div
-            ref={logRef}
-            className="h-[200px] overflow-y-auto p-5 font-mono text-xs leading-6"
-          >
+          <div ref={logRef} className="h-[200px] overflow-y-auto p-5 font-mono text-xs leading-6">
             {logs.length === 0 ? (
               <p className="text-slate-700">{'>'} Awaiting a company to watch...</p>
             ) : (
@@ -289,27 +297,22 @@ export default function App() {
                 </span>
               </div>
             )}
-
             <div className="grid gap-4 md:grid-cols-3">
               {Object.entries(sections).map(([title, bullets]) => {
-                const meta = SECTION_META[title];
+                const sectionMeta = SECTION_META[title];
                 return (
                   <article
-                    className={`rounded-xl border ${meta.border} p-5 flex flex-col gap-4`}
+                    className={`rounded-xl border ${sectionMeta.border} p-5 flex flex-col gap-4`}
                     key={title}
-                    style={{
-                      background: `linear-gradient(135deg, ${meta.gradient.includes('violet') ? 'rgba(124,58,237,0.08)' : meta.gradient.includes('indigo') ? 'rgba(99,102,241,0.08)' : 'rgba(168,85,247,0.08)'}, rgba(0,0,0,0.2))`
-                    }}
+                    style={{ background: `linear-gradient(135deg, ${sectionMeta.bg}, rgba(0,0,0,0.2))` }}
                   >
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${meta.badge}`}>
-                        {meta.icon} {title}
-                      </span>
-                    </div>
+                    <span className={`inline-flex items-center gap-1.5 self-start rounded-full border px-2.5 py-1 text-xs font-medium ${sectionMeta.badge}`}>
+                      {sectionMeta.icon} {title}
+                    </span>
                     <ul className="space-y-3 flex-1">
                       {(bullets.length ? bullets : ['No recent updates found.']).map((item, index) => (
                         <li key={`${title}-${index}`} className="flex gap-2.5 text-xs leading-5 text-slate-400">
-                          <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${meta.bullet}`}></span>
+                          <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${sectionMeta.bullet}`}></span>
                           <span>{linkify(item)}</span>
                         </li>
                       ))}
@@ -318,7 +321,6 @@ export default function App() {
                 );
               })}
             </div>
-
             <p className="text-center text-[11px] text-slate-700">
               Powered by OpenAI · Tavily · Supabase · Vercel
             </p>
